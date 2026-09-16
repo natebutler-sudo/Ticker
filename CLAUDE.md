@@ -121,9 +121,11 @@ gh repo create <org>/isg-watch --public --source=. --push
 `.nojekyll` is present, so GitHub Pages serves the files verbatim with no Jekyll
 processing. Do not remove it.
 
-The page carries `<meta name="robots" content="noindex, follow">` as a conservative
-default. If a public ICS/OT watch page is wanted as a shopfront while 3HUE moves into
-power, delete that line — it may be worth more indexed than hidden.
+**The page is indexable.** It originally carried `<meta name="robots"
+content="noindex, follow">` as a conservative default. That tag was removed on
+September 16, 2026, when the open question above was settled: the page is wanted as a
+public shopfront while 3HUE moves into the power sector, on the reasoning that it is
+worth more indexed than hidden.
 
 ## The SharePoint side
 
