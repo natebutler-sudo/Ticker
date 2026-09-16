@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICS/OT &amp; Regulatory Watch — 3HUE ISG</title>
+<meta name="description" content="Energy-sector ICS/OT advisories and NERC/FERC regulatory activity, read live from CISA and the Federal Register.">
+<meta name="robots" content="noindex, follow">
+
+<!--
+  ISG ICS/OT & Regulatory Watch — standalone static page.
+
+  Single file, no build step, no dependencies, no server component. It reads two
+  public sources directly from the visitor's browser on each load. The CSP below
+  is deliberately tight: nothing loads from anywhere but this origin, and the only
+  outbound connections permitted are the two data hosts.
+
+  Note: frame-ancestors is ignored inside a meta tag, and GitHub Pages cannot set
+  HTTP headers, so framing is not restricted. Fine for public advisory data.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://raw.githubusercontent.com https://www.federalregister.gov; base-uri 'none'; form-action 'none'">
+
+<style>
+  :root{
+    /* taken from 3hue.net's own declared tokens so this reads as part of the site */
+    --ground:#0B1118; --panel:#0F172A; --panel-2:#16202F; --raised:#1B2738;
+    --line:rgba(148,168,188,.18); --line-soft:rgba(148,168,188,.10);
+    --ink:#F1F5F9; --dim:#94A8BC; --faint:#64798F;
+    --brand:#44A8D9; --brand-700:#2F86B3; --brand-100:#D9EFF8;
+    --crit:#FF6B6B; --high:#FFA94D; --med:#FFD43B; --low:#6CC4F5; --reg:#44A8D9;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,monospace;
+    color-scheme: dark;
+  }
+  *,*::before,*::after{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ground); color:var(--ink); font-family:var(--font);
+    font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--brand);}
+  .wrap{max-width:1240px; margin:0 auto; padding-inline:20px;}
+
+  /* ---------- masthead ---------- */
+  .top{
+    background:linear-gradient(180deg,var(--panel) 0%,var(--ground) 100%);
+    border-bottom:1px solid var(--line);
+  }
+  .top .wrap{padding-block:26px 22px;}
+  .brandline{display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;}
+  .mark{
+    font-family:var(--mono); font-weight:700; font-size:13px; letter-spacing:.2em;
+    color:var(--brand); border:1px solid var(--brand); border-radius:2px; padding:4px 9px;
+  }
+  .brandline .who{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim);}
+  h1{
+    font-size:clamp(25px,3.6vw,38px); line-height:1.08; margin:0 0 10px;
+    font-weight:700; letter-spacing:-.015em; text-wrap:balance;
+  }
+  .lede{color:var(--dim); font-size:15px; max-width:66ch; margin:0;}
+
+  /* ---------- live status ---------- */
+  .status{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    margin-top:18px; font-size:12.5px; color:var(--dim);
+  }
+  .pip{position:relative; width:8px; height:8px; flex:none;}
+  .pip i,.pip b{position:absolute; inset:0; border-radius:50%; background:var(--brand); display:block;}
+  .pip b{animation:pulse 2.4s ease-out infinite;}
+  @keyframes pulse{0%{transform:scale(1);opacity:.7}70%{transform:scale(3.4);opacity:0}100%{transform:scale(3.4);opacity:0}}
+  .status .sep{color:var(--faint);}
+
+  /* ---------- stats ---------- */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:26px 0 0;}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:14px 16px;}
+  .stat .n{font-family:var(--mono); font-size:27px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums;}
+  .stat .k{font-size:10.5px; font-weight:700; letter-spacing:.11em; text-transform:uppercase; color:var(--dim); margin-top:7px;}
+
+  /* ---------- controls ---------- */
+  .controls{
+    position:sticky; top:0; z-index:20;
+    background:rgba(11,17,24,.93); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line); margin-top:30px;
+  }
+  .controls .wrap{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-block:12px;}
+  .search{
+    flex:1 1 210px; min-width:0; background:var(--panel); color:var(--ink);
+    border:1px solid var(--line); border-radius:3px; padding:8px 11px;
+    font-family:var(--font); font-size:13.5px;
+  }
+  .search::placeholder{color:var(--faint);}
+  .search:focus-visible,.chip:focus-visible,select:focus-visible{outline:2px solid var(--brand); outline-offset:1px;}
+  .chips{display:flex; gap:5px; flex-wrap:wrap;}
+  .chip{
+    font-family:var(--font); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    background:transparent; color:var(--dim); border:1px solid var(--line);
+    border-radius:2px; padding:6px 10px; cursor:pointer;
+    transition:color .15s,border-color .15s,background .15s;
+  }
+  .chip:hover{color:var(--ink); border-color:var(--dim);}
+  .chip[aria-pressed="true"]{color:var(--ground); background:var(--brand); border-color:var(--brand);}
+  .chip[data-sev="critical"][aria-pressed="true"]{background:var(--crit); border-color:var(--crit);}
+  .chip[data-sev="high"][aria-pressed="true"]{background:var(--high); border-color:var(--high);}
+  .chip[data-sev="medium"][aria-pressed="true"]{background:var(--med); border-color:var(--med);}
+  select{
+    background:var(--panel); color:var(--ink); border:1px solid var(--line);
+    border-radius:3px; padding:8px 10px; font-family:var(--font); font-size:13px;
+  }
+
+  /* ---------- grid ---------- */
+  main .wrap{padding-block:26px 60px;}
+  h2{
+    font-size:12px; font-weight:700; letter-spacing:.15em; text-transform:uppercase;
+    color:var(--brand); margin:38px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--line);
+  }
+  h2:first-of-type{margin-top:6px;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(325px,1fr)); gap:13px;}
+
+  .card{
+    position:relative; display:flex; flex-direction:column; gap:9px;
+    background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--sev,var(--brand));
+    border-radius:0 4px 4px 0; padding:15px 16px 15px 15px;
+    text-decoration:none; color:inherit;
+    transition:border-color .15s, background .15s, transform .15s;
+  }
+  .card:hover{background:var(--panel-2); border-color:var(--line); border-left-color:var(--sev,var(--brand)); transform:translateY(-1px);}
+  .card:focus-visible{outline:2px solid var(--brand); outline-offset:2px;}
+  .card .row1{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .aid{font-family:var(--mono); font-size:11px; color:var(--brand);}
+  .sev{
+    font-size:9.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+    padding:2px 7px; border-radius:2px; color:var(--sev); white-space:nowrap;
+    background:color-mix(in srgb,var(--sev) 15%,transparent);
+    border:1px solid color-mix(in srgb,var(--sev) 40%,transparent);
+  }
+  .score{
+    margin-left:auto; font-family:var(--mono); font-size:16px; font-weight:700;
+    color:var(--sev); font-variant-numeric:tabular-nums;
+  }
+  .card h3{font-size:15.5px; font-weight:650; margin:0; line-height:1.32;}
+  .vend{font-size:12px; color:var(--dim);}
+  .sum{font-size:12.5px; color:var(--dim); line-height:1.5; margin:0;
+       display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;}
+  .meta{display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+        font-size:10.5px; color:var(--faint); font-family:var(--mono);
+        border-top:1px solid var(--line-soft); padding-top:9px; margin-top:auto;}
+  .tag{
+    font-family:var(--font); font-size:9.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--dim); border:1px solid var(--line); border-radius:2px; padding:1px 6px;
+  }
+  .tag.energy{color:var(--brand); border-color:color-mix(in srgb,var(--brand) 45%,transparent);}
+
+  .empty{color:var(--faint); font-size:14px; padding:26px 0;}
+
+  /* ---------- regulatory ---------- */
+  .regrow{
+    display:flex; gap:14px; align-items:flex-start;
+    background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--reg);
+    border-radius:0 4px 4px 0; padding:14px 16px; text-decoration:none; color:inherit; margin-bottom:9px;
+    transition:background .15s;
+  }
+  .regrow:hover{background:var(--panel-2);}
+  .regrow:focus-visible{outline:2px solid var(--brand); outline-offset:2px;}
+  .regrow .d{font-family:var(--mono); font-size:11px; color:var(--brand); white-space:nowrap; padding-top:2px;}
+  .regrow .t{font-size:14.5px; font-weight:600; line-height:1.4;}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line); background:var(--panel);}
+  footer .wrap{padding-block:26px 40px;}
+  footer h3{font-size:11.5px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--brand); margin:0 0 10px;}
+  footer p{font-size:12.5px; color:var(--dim); line-height:1.65; max-width:72ch; margin:0 0 10px;}
+  footer code{font-family:var(--mono); font-size:11.5px; color:var(--brand-100); overflow-wrap:anywhere;}
+
+  @media (max-width:560px){
+    .grid{grid-template-columns:1fr;}
+    .controls{position:static;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .pip b{animation:none;} .card{transition:none;} .card:hover{transform:none;}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brandline">
+      <span class="mark">ISG</span>
+      <span class="who">3HUE Executive Consulting &middot; Information Security Group</span>
+    </div>
+    <h1>ICS/OT &amp; Regulatory Watch</h1>
+    <p class="lede">Industrial control system advisories affecting the energy sector, alongside NERC
+      reliability-standard and FERC activity. Read directly from CISA and the Federal Register each time
+      this page loads.</p>
+
+    <div class="status">
+      <span class="pip" aria-hidden="true"><i></i><b></b></span>
+      <span id="statusText" aria-live="polite">Loading…</span>
+    </div>
+
+    <div class="stats" id="stats"></div>
+  </div>
+</header>
+
+<div class="controls">
+  <div class="wrap">
+    <input class="search" id="q" type="search" placeholder="Search vendor, product, CVE…" aria-label="Search advisories">
+    <div class="chips" role="group" aria-label="Filter by severity">
+      <button class="chip" data-sev="critical" aria-pressed="false">Critical</button>
+      <button class="chip" data-sev="high"     aria-pressed="false">High</button>
+      <button class="chip" data-sev="medium"   aria-pressed="false">Medium</button>
+    </div>
+    <button class="chip" id="energyToggle" aria-pressed="true">Energy only</button>
+    <select id="sort" aria-label="Sort order">
+      <option value="date">Newest first</option>
+      <option value="cvss">Highest CVSS</option>
+    </select>
+    <select id="vendor" aria-label="Filter by vendor"><option value="">All vendors</option></select>
+  </div>
+</div>
+
+<main>
+  <div class="wrap">
+    <h2 id="advHead">Advisories</h2>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" hidden>No advisories match those filters.</div>
+
+    <h2>Regulatory — NERC &amp; FERC</h2>
+    <div id="reg"><div class="empty">Loading…</div></div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <h3>Sources and method</h3>
+    <p><strong>Advisories.</strong> CISA publishes ICS advisories in CSAF format at
+      <code>raw.githubusercontent.com/cisagov/CSAF</code>. This page reads
+      <code>changes.csv</code> for the newest advisory list, fetches the most recent set, and keeps those
+      whose <code>Critical infrastructure sectors</code> note names Energy. Severity is the highest CVSS
+      v3 or v4 base score across the advisory's vulnerabilities.</p>
+    <p><strong>Regulatory.</strong> The Federal Register API, filtered to FERC with the term NERC, then
+      narrowed to reliability-standard, CIP and bulk-power items. Paperwork Reduction Act collection
+      notices are excluded — they dominate the raw results and carry no news.</p>
+    <p><strong>CISA retired its RSS feeds in May 2025</strong>, including the KEV and advisory feeds.
+      The CSAF repository is the machine-readable channel that replaced them.</p>
+    <h3 style="margin-top:20px">Known limits</h3>
+    <p>The KEV catalog is <em>not</em> cross-referenced here. CISA serves it without CORS headers, so a
+      browser cannot read it from another origin — adding it would require a server-side step this page
+      deliberately avoids. Advisories are drawn from the most recent set rather than the full year, so
+      counts describe that window, not all of 2026. Sector classification is CISA's, reproduced as
+      published, and an advisory can name several sectors.</p>
+    <p style="color:var(--faint);margin-top:16px">3HUE Executive Consulting &middot; public-source
+      intelligence only &middot; no client material appears on this page.</p>
+  </div>
+</footer>
+
+<script>window.__SEED__ = {"items":[{"id":"ICSA-26-254-01","title":"CISA Malcolm","date":"2026-09-11","vendor":"CISA","sectors":["Energy","Information Technology","Water and Wastewater"],"cvss":8.8,"cves":["CVE-2026-90443","CVE-2026-90444","CVE-2026-90445","CVE-2026-90446","CVE-2026-90447","CVE-2026-90448","CVE-2026-90449","CVE-2026-90450","CVE-2026-90451","CVE-2026-90452","CVE-2026-90453","CVE-2026-90454","CVE-2026-90455","CVE-2026-90456","CVE-2026-90457"],"cveCount":15,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to execute arbitrary commands on system containers, forge or overwrite stored security-monitoring data, steal or hijack an analyst's authenticated session, bypass role-based access restri","url":"https://www.cisa.gov/news-events/ics-alerts/ics-alert-10-301-01"},{"id":"ICSA-26-183-01","title":"ST Engineering iDirect iQ-Series Terminals (Update A)","date":"2026-09-10","vendor":"ST Engineering iDirect","sectors":["Communications","Defense Industrial Base","Energy","Government Services and Facilities","Transportation Systems"],"cvss":8.8,"cves":["CVE-2026-38059","CVE-2026-38057","CVE-2026-38056","CVE-2026-38058"],"cveCount":4,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to gain unauthorized access to device information or cause a denial-of-service condition.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-183-01"},{"id":"ICSA-26-246-02","title":"IXON VPN Client","date":"2026-09-09","vendor":"IXON","sectors":["Commercial Facilities","Critical Manufacturing","Energy","Information Technology","Water and Wastewater"],"cvss":9.6,"cves":["CVE-2026-75925"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow an attacker to perform remote code execution on the computer running the client with elevated privileges. ","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-246-02"},{"id":"ICSA-26-246-07","title":"Pyramid Solutions NetStaX EtherNet/IP Stack","date":"2026-09-03","vendor":"Pyramid Solutions","sectors":["Critical Manufacturing","Energy","Water and Wastewater","Chemical"],"cvss":9.8,"cves":["CVE-2026-78012"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could result in memory corruption, a device crash, or a potential remote attack vector without the originating device receiving a CIP error indicating that the request could not be processed. ","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-246-07"},{"id":"ICSA-26-246-06","title":"Inductive Automation Ignition","date":"2026-09-03","vendor":"Inductive Automation","sectors":["Critical Manufacturing","Energy","Information Technology"],"cvss":8.8,"cves":["CVE-2026-77393"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow any authenticated user to create projects.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-246-06"},{"id":"ICSA-26-246-08","title":"Tycon Systems TPDIN-Monitor-WEB3","date":"2026-09-03","vendor":"Tycon Systems","sectors":["Critical Manufacturing","Energy"],"cvss":8.8,"cves":["CVE-2026-77847","CVE-2026-82712","CVE-2026-82684"],"cveCount":3,"summary":"Successful exploitation of these vulnerabilities could allow for an attacker to perform a man-in-the-middle (MitM) attack, cause a factory reset, wipe credentials, or retrieve sensitive information.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-246-08"},{"id":"ICSA-26-169-07","title":"Schneider Electric Easergy, EcoStruxture, PowerLogic, and Saitel Products (Update A)","date":"2026-09-03","vendor":"Schneider Electric","sectors":["Chemical","Critical Manufacturing","Energy","Water and Wastewater"],"cvss":8.3,"cves":["CVE-2026-4827"],"cveCount":1,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-169-07"},{"id":"ICSA-26-246-03","title":"Rockwell Automation ControlFLASH","date":"2026-09-03","vendor":"Rockwell Automation","sectors":["Critical Manufacturing","Energy","Water and Wastewater"],"cvss":7.3,"cves":["CVE-2026-12663"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could give an attacker the ability to run any commands or code of the attacker's choice on a target machine at the logged-in user's permission level.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-246-03"},{"id":"ICSA-26-246-01","title":"OPCFoundation OPC UA LocalDiscoveryServer (LDS)","date":"2026-09-03","vendor":"OPCFoundation","sectors":["Chemical","Energy","Food and Agriculture","Water and Wastewater","Critical Manufacturing"],"cvss":4.6,"cves":["CVE-2026-77477"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow an attacker to take control of a high-privilege terminal during installation and run arbitrary commands.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-246-01"},{"id":"ICSA-26-239-04","title":"Applied Systems Engineering ASE2000 V2 Communications Test Set","date":"2026-08-27","vendor":"Applied Systems Engineering","sectors":["Chemical","Critical Manufacturing","Energy","Water and Wastewater"],"cvss":9.8,"cves":["CVE-2018-1285","CVE-2026-18717"],"cveCount":2,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to read or write arbitrary local files, cause the application to issue outbound network requests, or intercept the connection to impersonate the trusted peer, complete the TLS handshake, ","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-239-04"},{"id":"ICSA-26-237-03","title":"Siemens SIMATIC IoT2050 Advanced","date":"2026-08-25","vendor":"Siemens","sectors":["Chemical","Critical Manufacturing","Energy","Transportation Systems"],"cvss":10.0,"cves":["CVE-2026-58115"],"cveCount":1,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-237-03"},{"id":"ICSA-26-237-06","title":"Ebyte NE2-D11","date":"2026-08-25","vendor":"Ebyte","sectors":["Critical Manufacturing","Energy"],"cvss":9.8,"cves":["CVE-2026-73125","CVE-2026-73809","CVE-2026-73839","CVE-2026-71187","CVE-2026-76179","CVE-2026-75814","CVE-2026-76940","CVE-2026-75548","CVE-2026-75813","CVE-2026-76945","CVE-2026-69658"],"cveCount":11,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to gain unauthorized administrative access, disclose sensitive information, modify device configuration, hijack authenticated sessions, and disrupt device operation.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-237-06"},{"id":"ICSA-26-232-01","title":"Johnson Controls Simplex Incident Manager","date":"2026-08-20","vendor":"Johnson Controls Inc.","sectors":["Critical Manufacturing","Commercial Facilities","Government Services and Facilities","Transportation Systems","Energy"],"cvss":5.8,"cves":["CVE-2026-27875"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow a local attacker with low privileges to extract user credentials (passwords and authentication tokens) from system memory, potentially leading to unauthorized access to the application and connected sys","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-232-01"},{"id":"ICSA-26-230-02","title":"Siemens Simcenter Nastran","date":"2026-08-18","vendor":"Siemens","sectors":["Critical Manufacturing","Defense Industrial Base","Energy","Healthcare and Public Health","Transportation Systems"],"cvss":7.8,"cves":["CVE-2026-59086"],"cveCount":1,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-230-02"},{"id":"ICSA-26-225-02","title":"Haiwell IoT Cloud HMI Gateway","date":"2026-08-13","vendor":"Haiwell","sectors":["Energy","Critical Manufacturing","Water and Wastewater"],"cvss":10.0,"cves":["CVE-2026-19188"],"cveCount":1,"summary":"Successful exploitation of this vulnerability may allow an attacker to inject and execute arbitrary OS commands with root privileges.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-225-02"},{"id":"ICSA-26-225-04","title":"Hitachi Energy APM Edge Product","date":"2026-08-13","vendor":"Hitachi Energy","sectors":["Energy"],"cvss":8.8,"cves":["CVE-2026-43284","CVE-2026-43500"],"cveCount":2,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-225-04"},{"id":"ICSA-26-225-05","title":"ANDRITZ HIPASE-250 and 250 SCALA","date":"2026-08-13","vendor":"ANDRITZ","sectors":["Energy"],"cvss":8.1,"cves":["CVE-2026-65309","CVE-2026-65310","CVE-2026-65311","CVE-2026-65313"],"cveCount":4,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to read data from the device or gain access to affected workstations.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-225-05"},{"id":"ICSA-26-225-14","title":"Johnson Controls Metasys","date":"2026-08-13","vendor":"Johnson Controls Inc","sectors":["Critical Manufacturing","Commercial Facilities","Government Services and Facilities","Transportation Systems","Energy"],"cvss":8.0,"cves":["CVE-2026-34491"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow a low-privilege user or attacker to inject a persistent malicious payload via a crafted URL that executes in the context of other users' sessions, including administrators, potentially leading to sessio","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-225-14"},{"id":"ICSA-26-225-03","title":"Johnson Controls Inc. Airwall","date":"2026-08-13","vendor":"Johnson Controls Inc.","sectors":["Critical Manufacturing","Commercial Facilities","Government Services and Facilities","Transportation Systems","Energy"],"cvss":6.8,"cves":["CVE-2026-64887","CVE-2026-34492"],"cveCount":2,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to decrypt sensitive data, bypass authentication controls, gaining unauthorized access to read arbitrary files on the system, or gain unauthorized access to protected system resources.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-225-03"},{"id":"ICSA-26-225-08","title":"Siemens Desigo DXR and PXC Controllers","date":"2026-08-13","vendor":"Siemens","sectors":["Commercial Facilities","Critical Manufacturing","Energy","Healthcare and Public Health","Transportation Systems"],"cvss":4.3,"cves":["CVE-2026-59693"],"cveCount":1,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/ICSA-26-225-08"},{"id":"ICSA-26-225-06","title":"Siemens RUGGEDCOM APE1808","date":"2026-08-12","vendor":"Siemens","sectors":["Critical Manufacturing","Energy","Transportation Systems"],"cvss":6.1,"cves":["CVE-2026-23573","CVE-2026-59839"],"cveCount":2,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-225-06"},{"id":"ICSA-26-218-01","title":"ABB Ability Zenon","date":"2026-08-06","vendor":"ABB","sectors":["Chemical","Communications","Critical Manufacturing","Dams","Energy","Healthcare and Public Health","Information Technology","Water and Wastewater"],"cvss":7.8,"cves":["CVE-2025-14847","CVE-2020-7928","CVE-2020-7921","CVE-2020-7925","CVE-2020-7929","CVE-2020-7923","CVE-2021-20330","CVE-2021-32036","CVE-2021-32040","CVE-2021-20333","CVE-2020-7924","CVE-2021-20328","CVE-2021-20334"],"cveCount":13,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-218-01"},{"id":"ICSA-26-218-02","title":"Johnson Controls Inc. TL280","date":"2026-08-06","vendor":"Johnson Controls Inc.","sectors":["Critical Manufacturing","Commercial Facilities","Government Services and Facilities","Transportation Systems","Energy"],"cvss":4.1,"cves":["CVE-2026-27871"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow an attacker to access sensitive information on the device. ","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-218-02"},{"id":"ICSA-26-211-03","title":"Toptech Systems RCU II+ and Multiload II+","date":"2026-07-30","vendor":"Toptech Systems","sectors":["Energy"],"cvss":8.8,"cves":["CVE-2026-12562"],"cveCount":1,"summary":"Successful exploitation of this vulnerability could allow an attacker to gain full system control and misuse it to access or manipulate connected networks and resources.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-211-03"},{"id":"ICSA-26-211-08","title":"o6 Automation open62541","date":"2026-07-30","vendor":"o6 Automation GmbH","sectors":["Critical Manufacturing","Energy","Transportation Systems"],"cvss":8.8,"cves":["CVE-2026-63362","CVE-2026-65423","CVE-2026-63035","CVE-2026-63559"],"cveCount":4,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to disclose sensitive information, cause a denial of service, or potentially execute arbitrary code.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-211-08"},{"id":"ICSA-26-211-04","title":"Schneider Electric IGSS","date":"2026-07-30","vendor":"Schneider Electric","sectors":["Commercial Facilities","Critical Manufacturing","Energy"],"cvss":7.8,"cves":["CVE-2026-12927"],"cveCount":1,"summary":"","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-211-04"},{"id":"ICSA-26-211-10","title":"MZ Automation GmbH libiec61850","date":"2026-07-30","vendor":"MZ Automation GmbH","sectors":["Energy"],"cvss":7.5,"cves":["CVE-2026-66720","CVE-2026-66369","CVE-2026-63550","CVE-2026-65421","CVE-2026-66364","CVE-2026-66349","CVE-2026-56758","CVE-2026-66360"],"cveCount":8,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to cause a denial-of-service condition on the device.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-211-10"},{"id":"ICSA-26-111-05","title":"Hardy Barth Salia EV Charge Controller (Update A)","date":"2026-07-30","vendor":"Hardy Barth","sectors":["Energy","Transportation Systems"],"cvss":7.3,"cves":["CVE-2025-5873","CVE-2025-10371"],"cveCount":2,"summary":"Successful exploitation of these vulnerabilities could crash the device being accessed; a buffer overflow condition may allow remote code execution.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-111-05"},{"id":"ICSA-26-211-11","title":"MZ Automation lib60870","date":"2026-07-30","vendor":"MZ Automation GmbH","sectors":["Energy","Water and Wastewater","Critical Manufacturing","Chemical"],"cvss":6.5,"cves":["CVE-2026-61893","CVE-2026-63033"],"cveCount":2,"summary":"Successful exploitation of these vulnerabilities could crash the device being accessed.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-211-11"},{"id":"ICSA-26-211-02","title":"Johnson Controls OpenBlue Employee","date":"2026-07-30","vendor":"Johnson Controls Inc.","sectors":["Critical Manufacturing","Commercial Facilities","Government Services and Facilities","Transportation Systems","Energy"],"cvss":2.4,"cves":["CVE-2026-21662","CVE-2026-34495","CVE-2026-34497"],"cveCount":3,"summary":"Successful exploitation of these vulnerabilities could allow an attacker to upload malicious files, execute stored cross-site scripting attacks, or inject arbitrary HTML content.","url":"https://www.cisa.gov/news-events/ics-advisories/icsa-26-211-02"}]};</script>
+<script>
+(function(){
+  "use strict";
+
+  var CSAF = 'https://raw.githubusercontent.com/cisagov/CSAF/develop/csaf_files/OT/white/';
+  var FR   = 'https://www.federalregister.gov/api/v1/documents.json';
+  var SCAN = 45, CACHE_KEY = 'isg-watch-v1', CACHE_H = 4;
+
+  var SEED = window.__SEED__ || { items: [] };
+  var state = { items: [], reg: [], sev: {}, energyOnly: true, q: '', sort: 'date', vendor: '', fetchedAt: null };
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function band(c){ return c == null ? 'info' : c >= 9 ? 'critical' : c >= 7 ? 'high' : c >= 4 ? 'medium' : 'low'; }
+  function sevVar(s){ return 'var(--' + ({critical:'crit',high:'high',medium:'med',low:'low',info:'brand'}[s] || 'brand') + ')'; }
+  function isEnergy(it){ return (it.sectors || []).some(function(s){ return /energy/i.test(s); }); }
+  function safe(u){ return /^https:\/\//i.test(u || '') ? u : '#'; }
+
+  function relDate(iso){
+    if(!iso) return '';
+    var d = new Date(iso + 'T00:00:00Z'); if(isNaN(d)) return iso;
+    var days = Math.round((Date.now() - d) / 864e5);
+    if(days <= 0) return 'today';
+    if(days === 1) return 'yesterday';
+    if(days < 30) return days + 'd ago';
+    return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+  }
+
+  /* ---------- storage (never throws) ---------- */
+  function readCache(){ try{ var o = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    return (o && o.items && o.items.length) ? o : null; }catch(e){ return null; } }
+  function writeCache(o){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(o)); }catch(e){} }
+
+  /* ---------- sources ---------- */
+  function mapAdvisory(a){
+    var d = a.document || {}, notes = d.notes || [];
+    function note(rx){ for(var i=0;i<notes.length;i++){ if(rx.test(notes[i].title||'')) return notes[i].text||''; } return ''; }
+    var scores = [];
+    (a.vulnerabilities||[]).forEach(function(v){ (v.scores||[]).forEach(function(s){
+      var n = s.cvss_v4 && s.cvss_v4.baseScore;
+      if(n == null) n = s.cvss_v3 && s.cvss_v3.baseScore;
+      if(typeof n === 'number') scores.push(n);
+    }); });
+    var cves = (a.vulnerabilities||[]).map(function(v){ return v.cve; }).filter(Boolean);
+    var br = (a.product_tree && a.product_tree.branches) || [];
+    var url = '';
+    (d.references||[]).forEach(function(r){ if(!url && /cisa\.gov\/news-events/.test(r.url||'')) url = r.url; });
+    var sec = note(/critical infrastructure sectors/i);
+    return {
+      id: (d.tracking||{}).id || '', title: d.title || '',
+      date: ((d.tracking||{}).current_release_date || '').slice(0,10),
+      vendor: (br[0] && br[0].name) || '',
+      sectors: sec.split(/,\s*/).filter(Boolean),
+      cvss: scores.length ? Math.max.apply(null, scores) : null,
+      cves: cves, cveCount: cves.length,
+      summary: (note(/advisory summary/i) || '').replace(/\s+/g,' ').slice(0,260),
+      url: url
+    };
+  }
+
+  function loadAdvisories(onBatch){
+    return fetch(CSAF + 'changes.csv', {cache:'no-store'})
+      .then(function(r){ if(!r.ok) throw new Error('index ' + r.status); return r.text(); })
+      .then(function(csv){
+        var paths = [];
+        csv.split(/\r?\n/).some(function(line){
+          var m = line.match(/^"([^"]+)"/);
+          if(m && m[1].indexOf('/icsa-') !== -1) paths.push(m[1]);
+          return paths.length >= SCAN;
+        });
+        var out = [], done = 0;
+        return Promise.all(paths.map(function(p){
+          return fetch(CSAF + p).then(function(r){ return r.ok ? r.json() : null; })
+            .catch(function(){ return null; })
+            .then(function(a){
+              done++;
+              if(a){ try{ var m = mapAdvisory(a); if(m.id) out.push(m); }catch(e){} }
+              if(done % 12 === 0 && onBatch) onBatch(out.slice(), done, paths.length);
+            });
+        })).then(function(){ return out; });
+      });
+  }
+
+  function loadRegulatory(){
+    var qs = 'per_page=25&order=newest&conditions[term]=NERC'
+           + '&conditions[agencies][]=federal-energy-regulatory-commission'
+           + '&fields[]=title&fields[]=publication_date&fields[]=html_url&fields[]=document_number';
+    return fetch(FR + '?' + qs)
+      .then(function(r){ if(!r.ok) throw new Error('FR ' + r.status); return r.json(); })
+      .then(function(j){
+        return (j.results||[])
+          .filter(function(d){ return !/information collection/i.test(d.title||''); })
+          .filter(function(d){ return /reliability standard|CIP-\d|bulk[- ]power|cyber|physical security/i.test(d.title||''); })
+          .slice(0,6)
+          .map(function(d){ return { id:'FR ' + (d.document_number||''), title:d.title||'',
+                                     date:d.publication_date||'', url:d.html_url||'' }; });
+      })
+      .catch(function(){ return []; });
+  }
+
+  /* ---------- render ---------- */
+  function visible(){
+    var sevOn = Object.keys(state.sev).filter(function(k){ return state.sev[k]; });
+    var q = state.q.trim().toLowerCase();
+    var out = state.items.filter(function(it){
+      if(state.energyOnly && !isEnergy(it)) return false;
+      if(sevOn.length && sevOn.indexOf(band(it.cvss)) === -1) return false;
+      if(state.vendor && it.vendor !== state.vendor) return false;
+      if(q){
+        var hay = (it.title + ' ' + it.vendor + ' ' + it.id + ' ' + it.cves.join(' ') + ' ' + it.summary).toLowerCase();
+        if(hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+    out.sort(state.sort === 'cvss'
+      ? function(a,b){ return (b.cvss||0) - (a.cvss||0); }
+      : function(a,b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : (b.cvss||0)-(a.cvss||0); });
+    return out;
+  }
+
+  function card(it){
+    var s = band(it.cvss);
+    var cve = it.cveCount ? it.cves.slice(0,2).join(' ') + (it.cveCount > 2 ? '  +' + (it.cveCount-2) : '') : '';
+    return '<a class="card" style="--sev:' + sevVar(s) + '" href="' + esc(safe(it.url)) + '" target="_blank" rel="noopener noreferrer">'
+      + '<span class="row1">'
+        + '<span class="aid">' + esc(it.id) + '</span>'
+        + '<span class="sev">' + esc(s) + '</span>'
+        + (it.cvss != null ? '<span class="score">' + it.cvss.toFixed(1) + '</span>' : '')
+      + '</span>'
+      + '<h3>' + esc(it.title) + '</h3>'
+      + (it.vendor ? '<span class="vend">' + esc(it.vendor) + '</span>' : '')
+      + (it.summary ? '<p class="sum">' + esc(it.summary) + '</p>' : '')
+      + '<span class="meta">'
+        + '<span>' + esc(relDate(it.date)) + '</span>'
+        + (cve ? '<span>' + esc(cve) + '</span>' : '')
+        + (isEnergy(it) ? '<span class="tag energy">Energy</span>' : '')
+        + (it.sectors.length > 1 ? '<span class="tag">+' + (it.sectors.length-1) + ' sectors</span>' : '')
+      + '</span></a>';
+  }
+
+  function paintStats(){
+    var en = state.items.filter(isEnergy);
+    var crit = en.filter(function(i){ return band(i.cvss) === 'critical'; }).length;
+    var newest = en.length ? en.map(function(i){ return i.date; }).sort().pop() : '—';
+    var vend = {}; en.forEach(function(i){ if(i.vendor) vend[i.vendor] = 1; });
+    var cells = [
+      [en.length, 'Energy advisories'],
+      [crit, 'Critical'],
+      [Object.keys(vend).length, 'Vendors affected'],
+      [newest === '—' ? '—' : relDate(newest), 'Most recent']
+    ];
+    $('stats').innerHTML = cells.map(function(c){
+      return '<div class="stat"><div class="n">' + esc(c[0]) + '</div><div class="k">' + esc(c[1]) + '</div></div>';
+    }).join('');
+  }
+
+  function paintVendors(){
+    var sel = $('vendor'), cur = sel.value;
+    var names = {};
+    state.items.forEach(function(i){ if(i.vendor && (!state.energyOnly || isEnergy(i))) names[i.vendor] = 1; });
+    var list = Object.keys(names).sort();
+    sel.innerHTML = '<option value="">All vendors</option>'
+      + list.map(function(n){ return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+    if(list.indexOf(cur) !== -1) sel.value = cur; else state.vendor = '';
+  }
+
+  function paint(){
+    var list = visible();
+    $('grid').innerHTML = list.map(card).join('');
+    $('empty').hidden = list.length > 0;
+    $('advHead').textContent = 'Advisories — ' + list.length + ' shown';
+    paintStats();
+  }
+
+  function paintReg(){
+    $('reg').innerHTML = state.reg.length
+      ? state.reg.map(function(r){
+          return '<a class="regrow" href="' + esc(safe(r.url)) + '" target="_blank" rel="noopener noreferrer">'
+            + '<span class="d">' + esc(r.date) + '</span><span class="t">' + esc(r.title) + '</span></a>';
+        }).join('')
+      : '<div class="empty">No matching FERC or NERC items in the recent window.</div>';
+  }
+
+  function setStatus(msg){ $('statusText').textContent = msg; }
+
+  /* ---------- events ---------- */
+  Array.prototype.forEach.call(document.querySelectorAll('.chip[data-sev]'), function(b){
+    b.addEventListener('click', function(){
+      var k = b.dataset.sev, on = b.getAttribute('aria-pressed') === 'true';
+      b.setAttribute('aria-pressed', String(!on)); state.sev[k] = !on; paint();
+    });
+  });
+  $('energyToggle').addEventListener('click', function(){
+    var on = this.getAttribute('aria-pressed') === 'true';
+    this.setAttribute('aria-pressed', String(!on));
+    this.textContent = !on ? 'Energy only' : 'All sectors';
+    state.energyOnly = !on; paintVendors(); paint();
+  });
+  var t;
+  $('q').addEventListener('input', function(){ var v = this.value;
+    clearTimeout(t); t = setTimeout(function(){ state.q = v; paint(); }, 150); });
+  $('sort').addEventListener('change', function(){ state.sort = this.value; paint(); });
+  $('vendor').addEventListener('change', function(){ state.vendor = this.value; paint(); });
+
+  /* ---------- boot ---------- */
+  function adopt(items, meta){
+    state.items = items;
+    state.fetchedAt = (meta && meta.fetchedAt) || state.fetchedAt;
+    paintVendors(); paint();
+  }
+
+  var cached = readCache();
+  if(cached){ adopt(cached.items, {fetchedAt: cached.fetchedAt}); setStatus('Showing cached results — refreshing…'); }
+  else if(SEED.items.length){ adopt(SEED.items, null); setStatus('Showing bundled snapshot — fetching live data…'); }
+
+  var fresh = cached && (Date.now() - cached.fetchedAt) < CACHE_H * 3600e3;
+
+  if(fresh){
+    setStatus('Live · updated ' + relDate(new Date(cached.fetchedAt).toISOString().slice(0,10)));
+    loadRegulatory().then(function(r){ state.reg = r; paintReg(); });
+  } else {
+    Promise.all([
+      loadAdvisories(function(partial, done, total){
+        adopt(partial, null);
+        setStatus('Reading CISA advisories… ' + done + ' of ' + total);
+      }),
+      loadRegulatory()
+    ]).then(function(res){
+      var items = res[0];
+      if(!items.length) throw new Error('empty');
+      state.reg = res[1];
+      writeCache({ fetchedAt: Date.now(), items: items });
+      adopt(items, { fetchedAt: Date.now() });
+      paintReg();
+      setStatus('Live · ' + items.length + ' advisories read from CISA · updated just now');
+    }).catch(function(){
+      paintReg();
+      setStatus(state.items.length
+        ? 'Could not reach the live sources — showing the last data available.'
+        : 'Could not reach CISA or the Federal Register right now.');
+    });
+  }
+})();
+</script>
+</body>
+</html>
